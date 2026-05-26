@@ -70,13 +70,15 @@ services:
       ALLOW_LOCAL_WEBHOOKS: ${ALLOW_LOCAL_WEBHOOKS}
       BLOCK_MEDIA: ${BLOCK_MEDIA}
       # Configure maximum concurrent pages for Playwright browser instances
-      MAX_CONCURRENT_PAGES: ${CRAWL_CONCURRENT_REQUESTS:-10}
+      MAX_CONCURRENT_PAGES: ${CRAWL_CONCURRENT_REQUESTS:-25}
     networks:
       - backend
-    # Resource limits for Docker Compose (not Swarm)
-    cpus: 2.0
-    mem_limit: 4G
-    memswap_limit: 4G
+    # Resource limits optimized for 16-core / 32GB host
+    cpus: 6.0
+    mem_limit: 8G
+    memswap_limit: 8G
+    shm_size: 2gb
+    restart: unless-stopped
     logging:
       driver: "json-file"
       options:
@@ -84,7 +86,7 @@ services:
         max-file: "3"
         compress: "true"
     tmpfs:
-      - /tmp/.cache:noexec,nosuid,size=1g
+      - /tmp/.cache:noexec,nosuid,size=2g
 
   api:
     <<: *common-service
@@ -107,11 +109,11 @@ services:
     ports:
       - "${PORT:-3002}:${INTERNAL_PORT:-3002}"
     command: node dist/src/harness.js --start-docker
-    # Resource limits for Docker Compose (not Swarm)
-    # Increase if you have more CPU cores/RAM available
-    cpus: 4.0
-    mem_limit: 8G
-    memswap_limit: 8G
+    # Resource limits optimized for 16-core / 32GB host
+    cpus: 10.0
+    mem_limit: 20G
+    memswap_limit: 20G
+    restart: unless-stopped
 
   redis:
     # NOTE: If you want to use Valkey (open source) instead of Redis (source available),
@@ -122,7 +124,8 @@ services:
 
     networks:
       - backend
-    command: redis-server --bind 0.0.0.0
+    command: redis-server --bind 0.0.0.0 --maxmemory 2gb --maxmemory-policy noeviction
+    restart: unless-stopped
     logging:
       driver: "json-file"
       options:
@@ -135,6 +138,7 @@ services:
     networks:
       - backend
     command: rabbitmq-server
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
       interval: 5s
@@ -159,12 +163,19 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
     networks:
       - backend
+    volumes:
+      - nuq-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
         compress: "true"
+
+volumes:
+  nuq-postgres-data:
+    driver: local
 
 networks:
   backend:

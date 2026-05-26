@@ -62,6 +62,11 @@ export function getModel(name: string, provider: Provider = defaultProvider) {
   if (provider === "openai" && modelName.startsWith("o3-mini")) {
     return providerList.openai.chat(modelName);
   }
+  // Force Chat Completions for custom OpenAI-compatible endpoints (e.g. Ollama)
+  // that do not support the Responses API.
+  if (provider === "openai" && config.OPENAI_BASE_URL) {
+    return providerList.openai.chat(modelName);
+  }
   return providerList[provider](modelName);
 }
 
