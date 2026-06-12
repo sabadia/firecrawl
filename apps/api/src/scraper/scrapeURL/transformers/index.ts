@@ -10,8 +10,8 @@ import {
   performSummary,
   performCleanContent,
 } from "./llmExtract";
+import { performDeterministicJson } from "./deterministicJson";
 import { performQuery } from "./query";
-import { uploadScreenshot } from "./uploadScreenshot";
 import { removeBase64Images } from "./removeBase64Images";
 import { performAgent } from "./agent";
 import { performAttributes } from "./performAttributes";
@@ -92,7 +92,11 @@ async function deriveMarkdownFromHTML(
     meta.options.formats,
     "changeTracking",
   );
-  const hasJson = hasFormatOfType(meta.options.formats, "json");
+  // deterministicJson populates document.json just like json, so treat it the
+  // same here (derive markdown for it; keep the field it produced).
+  const hasJson =
+    hasFormatOfType(meta.options.formats, "json") ||
+    hasFormatOfType(meta.options.formats, "deterministicJson");
   const hasSummary = hasFormatOfType(meta.options.formats, "summary");
   const hasQuestion = hasFormatOfType(meta.options.formats, "question");
   const hasHighlights = hasFormatOfType(meta.options.formats, "highlights");
@@ -322,7 +326,11 @@ function coerceFieldsToFormats(meta: Meta, document: Document): Document {
     meta.options.formats,
     "changeTracking",
   );
-  const hasJson = hasFormatOfType(meta.options.formats, "json");
+  // deterministicJson populates document.json just like json, so treat it the
+  // same here (derive markdown for it; keep the field it produced).
+  const hasJson =
+    hasFormatOfType(meta.options.formats, "json") ||
+    hasFormatOfType(meta.options.formats, "deterministicJson");
   const hasScreenshot = hasFormatOfType(meta.options.formats, "screenshot");
   const hasSummary = hasFormatOfType(meta.options.formats, "summary");
   const hasBranding = hasFormatOfType(meta.options.formats, "branding");
@@ -492,21 +500,16 @@ function coerceFieldsToFormats(meta: Meta, document: Document): Document {
   const hasVideo = hasFormatOfType(meta.options.formats, "video");
   if (!hasVideo && document.video !== undefined) {
     delete document.video;
-  } else if (hasVideo && document.video === undefined) {
+  }
+  if (!hasVideo && document.videos !== undefined) {
+    delete document.videos;
+  } else if (
+    hasVideo &&
+    document.video === undefined &&
+    document.videos === undefined
+  ) {
     meta.logger.warn(
       "Request had format: video, but there was no video field in the result.",
-    );
-  }
-
-  // pii is a diagnostic/report format. Redaction itself is controlled by
-  // redactPII; include `pii` only when callers want spans/counts in the response.
-  const hasPii = hasFormatOfType(meta.options.formats, "pii");
-  const wantPii = !!(hasPii && meta.options.redactPII);
-  if (!wantPii && document.pii !== undefined) {
-    delete document.pii;
-  } else if (wantPii && document.pii === undefined) {
-    meta.logger.warn(
-      "Request had format: pii with redactPII: true, but there was no pii field in the result.",
     );
   }
 
@@ -574,10 +577,10 @@ const transformerStack: Transformer[] = [
   deriveImagesFromHTML,
   deriveBrandingFromActions,
   deriveMetadataFromRawHTML,
-  uploadScreenshot,
   ...(useIndex ? [sendDocumentToIndex] : []),
   ...(useSearchIndex ? [sendDocumentToSearchIndex] : []), // Add to search index for real-time search
   performLLMExtract,
+  performDeterministicJson,
   performSummary,
   performQuery,
   performAttributes,

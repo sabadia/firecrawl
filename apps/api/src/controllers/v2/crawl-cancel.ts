@@ -1,10 +1,15 @@
 import { Response } from "express";
 import { logger } from "../../lib/logger";
-import { getCrawl, getCrawlJobs, saveCrawl } from "../../lib/crawl-redis";
+import {
+  getCrawl,
+  getCrawlJobs,
+  saveCrawl,
+  StoredCrawl,
+} from "../../lib/crawl-redis";
 import * as Sentry from "@sentry/node";
 import { configDotenv } from "dotenv";
-import { RequestWithAuth } from "./types";
-import { crawlGroup } from "../../services/worker/nuq";
+import { RequestWithAuth, scrapeOptions } from "./types";
+import { crawlGroup, normalizeOwnerId } from "../../services/worker/nuq";
 import { removeConcurrencyLimitedJobs } from "../../lib/concurrency-limit";
 configDotenv();
 
@@ -13,24 +18,30 @@ export async function crawlCancelController(
   res: Response,
 ) {
   try {
-    const sc = await getCrawl(req.params.jobId);
-    if (!sc) {
+    const group = await crawlGroup.getGroup(req.params.jobId);
+    if (!group) {
       return res.status(404).json({ error: "Job not found" });
     }
 
-    // check if the job belongs to the team
-    if (sc.team_id !== req.auth.team_id) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    const group = await crawlGroup.getGroup(req.params.jobId);
-    if (!group) {
+    // group.ownerId is normalized to a UUID in NuQ, so the raw team_id
+    // (e.g. "bypass" when self-hosted) must be normalized before comparing
+    if (group.ownerId !== normalizeOwnerId(req.auth.team_id)) {
       return res.status(404).json({ error: "Job not found" });
     }
 
     if (group.status === "completed") {
       return res.status(409).json({ error: "Crawl is already completed" });
     }
+
+    const sc: StoredCrawl = (await getCrawl(req.params.jobId)) ?? {
+      team_id: req.auth.team_id,
+      createdAt: Date.now(),
+      crawlerOptions: null,
+      scrapeOptions: scrapeOptions.parse({}),
+      internalOptions: {
+        teamId: req.auth.team_id,
+      },
+    };
 
     try {
       sc.cancelled = true;
